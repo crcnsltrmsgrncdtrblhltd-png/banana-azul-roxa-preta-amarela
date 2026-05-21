@@ -1,0 +1,244 @@
+// Schema do clone Sua Senha — venda antecipada de senhas para vaquejadas.
+// Docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TipoUsuario {
+  CLIENTE
+  PARQUE
+  ADMIN
+}
+
+enum StatusEvento {
+  RASCUNHO
+  PUBLICADO
+  ENCERRADO
+}
+
+enum StatusSenha {
+  DISPONIVEL
+  RESERVADA
+  VENDIDA
+}
+
+enum StatusPedido {
+  PENDENTE
+  PAGO
+  CANCELADO
+  REEMBOLSADO
+}
+
+enum MetodoPagamento {
+  CARTAO
+  BOLETO
+  PIX
+}
+
+enum StatusPagamento {
+  PENDENTE
+  APROVADO
+  RECUSADO
+  ESTORNADO
+}
+
+enum StatusReembolso {
+  SOLICITADO
+  PROCESSADO
+  NEGADO
+}
+
+model User {
+  id            String      @id @default(cuid())
+  tipo          TipoUsuario @default(CLIENTE)
+  nome          String
+  cpfCnpj       String      @unique
+  telefone      String      @unique
+  email         String?     @unique
+  dataNascimento DateTime
+  passwordHash  String
+  parque        Parque?
+  pedidos       Pedido[]
+  senhasCompradas Senha[]   @relation("CompradorSenha")
+  consentimentos ConsentLog[]
+  auditorias    AuditLog[]
+  criadoEm      DateTime    @default(now())
+  atualizadoEm  DateTime    @updatedAt
+}
+
+model Parque {
+  id        String   @id @default(cuid())
+  usuario   User     @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+  usuarioId String   @unique
+  nome      String
+  cnpj      String?
+  cidade    String?
+  uf        String?
+  contato   String?
+  eventos   Evento[]
+  criadoEm  DateTime @default(now())
+}
+
+model Evento {
+  id             Int          @id @default(autoincrement())
+  slug           String
+  nome           String
+  parque         Parque       @relation(fields: [parqueId], references: [id])
+  parqueId       String
+  cidade         String
+  uf             String
+  dataInicio     DateTime
+  dataFim        DateTime
+  vendaEncerraEm DateTime
+  posterUrl      String?
+  descricao      String?
+  status         StatusEvento @default(RASCUNHO)
+  categorias     Categoria[]
+  dias           DiaEvento[]
+  senhas         Senha[]
+  criadoEm       DateTime     @default(now())
+  atualizadoEm   DateTime     @updatedAt
+
+  @@unique([id, slug])
+  @@index([uf])
+  @@index([status])
+}
+
+model Categoria {
+  id                  Int      @id @default(autoincrement())
+  evento              Evento   @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  eventoId            Int
+  nome                String
+  regras              String
+  qtdSenhasPorVaqueiro Int     @default(2)
+  qtdBois             Int      @default(4)
+  preco               Decimal  @db.Decimal(10, 2)
+  taxaAdministrativa  Decimal  @default(0) @db.Decimal(10, 2)
+  senhas              Senha[]
+
+  @@index([eventoId])
+}
+
+model DiaEvento {
+  id       Int      @id @default(autoincrement())
+  evento   Evento   @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  eventoId Int
+  data     DateTime
+  label    String
+  senhas   Senha[]
+
+  @@index([eventoId])
+}
+
+model Senha {
+  id           String      @id @default(cuid())
+  evento       Evento      @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  eventoId     Int
+  categoria    Categoria   @relation(fields: [categoriaId], references: [id])
+  categoriaId  Int
+  dia          DiaEvento   @relation(fields: [diaId], references: [id])
+  diaId        Int
+  numero       Int
+  status       StatusSenha @default(DISPONIVEL)
+  reservadaAte DateTime?
+  vaqueiroNome     String?
+  vaqueiroCpf      String?
+  apelido          String?
+  cidade           String?
+  uf               String?
+  cavaloPuxador    String?
+  esteireiro       String?
+  cavaloEsteireiro String?
+  representacao    String?
+  boiNaTv          Boolean  @default(false)
+  valorBoiNaTv     Decimal? @db.Decimal(10, 2)
+  comprador        User?    @relation("CompradorSenha", fields: [compradorId], references: [id])
+  compradorId      String?
+  itemPedido       ItemPedido?
+  criadoEm     DateTime    @default(now())
+  atualizadoEm DateTime    @updatedAt
+
+  @@unique([eventoId, categoriaId, diaId, numero])
+  @@index([status])
+  @@index([reservadaAte])
+}
+
+model Pedido {
+  id              String          @id @default(cuid())
+  usuario         User            @relation(fields: [usuarioId], references: [id])
+  usuarioId       String
+  total           Decimal         @db.Decimal(10, 2)
+  status          StatusPedido    @default(PENDENTE)
+  metodoPagamento MetodoPagamento
+  parcelas        Int             @default(1)
+  itens           ItemPedido[]
+  pagamentos      Pagamento[]
+  reembolso       Reembolso?
+  criadoEm        DateTime        @default(now())
+  atualizadoEm    DateTime        @updatedAt
+
+  @@index([usuarioId])
+  @@index([status])
+}
+
+model ItemPedido {
+  id       String  @id @default(cuid())
+  pedido   Pedido  @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  pedidoId String
+  senha    Senha   @relation(fields: [senhaId], references: [id])
+  senhaId  String  @unique
+  valor    Decimal @db.Decimal(10, 2)
+}
+
+model Pagamento {
+  id             String          @id @default(cuid())
+  pedido         Pedido          @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  pedidoId       String
+  provider       String          @default("mock")
+  providerRef    String?
+  checkoutUrl    String?
+  metodo         MetodoPagamento
+  numeroParcela  Int             @default(1)
+  totalParcelas  Int             @default(1)
+  valor          Decimal         @db.Decimal(10, 2)
+  status         StatusPagamento @default(PENDENTE)
+  criadoEm    DateTime        @default(now())
+  atualizadoEm DateTime       @updatedAt
+}
+
+model Reembolso {
+  id            String          @id @default(cuid())
+  pedido        Pedido          @relation(fields: [pedidoId], references: [id], onDelete: Cascade)
+  pedidoId      String          @unique
+  motivo        String
+  status        StatusReembolso @default(SOLICITADO)
+  valorEstornado Decimal?       @db.Decimal(10, 2)
+  processadoEm  DateTime?
+  criadoEm      DateTime        @default(now())
+}
+
+model ConsentLog {
+  id        String   @id @default(cuid())
+  usuario   User?    @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  usuarioId String?
+  tipo      String
+  aceito    Boolean
+  ip        String?
+  criadoEm  DateTime @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  usuario   User?    @relation(fields: [usuarioId], references: [id], onDelete: SetNull)
+  usuarioId String?
+  acao      String
+  entidade  String
+  detalhe   String?
+  criadoEm  DateTime @default(now())
+}
